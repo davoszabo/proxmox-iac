@@ -1,0 +1,46 @@
+- name: Install required packages
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - qemu-guest-agent
+    - ufw
+    - chrony # NTP
+    - iotop
+    - nfs-common
+  become: true
+
+- name: Ensure required services are enabled and running
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - qemu-guest-agent
+    - ufw
+    - chrony
+  become: true
+
+- name: Set timezone to {{ timezone }}
+  ansible.builtin.timezone:
+    name: "{{ timezone }}"
+  become: true
+
+- name: Copy custom CA certificates
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/share/ca-certificates/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ lookup('fileglob', '*ca.crt', wantlist=True) }}"
+  become: true
+
+- name: Update system CA certificates
+  ansible.builtin.command: update-ca-certificates
+  become: true
+
+- name: Reboot the machine
+  ansible.builtin.reboot:
+  become: true
+  when: reboot_when_finished

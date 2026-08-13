@@ -1,0 +1,59 @@
+- name: Build vm_map from the prefixed variables ({{ vm_prefix }})
+  set_fact:
+    vm_map: >-
+      {{
+        vm_map | default({}) | combine({
+          item: {
+            "name": item,
+            "ip":   hostvars[item].ansible_host,
+            "id":   hostvars[item].vmid,
+            "config": dict(
+              (
+                hostvars[item] | dict2items
+                | selectattr('key','match','^' ~ vm_prefix)
+                | map(attribute='key')
+                | map('regex_replace','^' ~ vm_prefix,'')
+              )
+              | zip(
+                hostvars[item] | dict2items
+                | selectattr('key','match','^' ~ vm_prefix)
+                | map(attribute='value')
+              )
+            )
+          }
+        }, recursive=true)
+      }}
+  loop: "{{ groups['cluster'] }}"
+
+# - name: Show vm_map
+#   debug:
+#     var: vm_map
+#
+- name: Gather cluster configs
+  ansible.builtin.set_fact:
+    cluster: "{{ hostvars[groups.cluster[0]] }}"
+
+- name: Provision VMs in Proxmox with Terraform
+  community.general.terraform:
+    project_path: "{{ role_path }}/files"
+    binary_path: "/usr/bin/tofu"
+    check_destroy: true
+    state: "{{ cluster.state }}"
+    force_init: true
+    complex_vars: true
+    workspace: "{{ cluster.tf_workspace }}"
+    variables:
+      vms: "{{ vm_map }}"
+      proxmox: "{{ cluster.proxmox }}"
+      # proxmox_ssh: "{{ cluster.proxmox_ssh }}"
+  register: tf_output
+
+- name: Display Terraform output
+  ansible.builtin.debug:
+    var: tf_output.stdout
+
+- name: Waiting for VMs to stabilize
+  ansible.builtin.pause:
+    minutes: 1
+  when: cluster.state == "present"
+

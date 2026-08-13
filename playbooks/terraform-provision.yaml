@@ -1,0 +1,28 @@
+---
+
+- name: Provision with Terraform
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Checking OpenTofu version
+      ansible.builtin.command: "tofu -v"
+      register: opentofu_version
+      failed_when: opentofu_version.rc != 0
+      changed_when: false
+
+    - name: Include roles
+      ansible.builtin.import_role:
+        name: terraform/provision
+      tags:
+        - prov
+
+- name: Post-provision setup
+  hosts: cluster
+  gather_facts: false
+  tasks:
+    - name: Include roles
+      ansible.builtin.import_role:
+        name: terraform/post-provision
+      tags:
+        - post
