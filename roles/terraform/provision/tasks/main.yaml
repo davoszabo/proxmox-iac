@@ -25,13 +25,59 @@
       }}
   loop: "{{ groups['cluster'] }}"
 
-# - name: Show vm_map
-#   debug:
-#     var: vm_map
-#
 - name: Gather cluster configs
   ansible.builtin.set_fact:
     cluster: "{{ hostvars[groups.cluster[0]] }}"
+
+- name: Require S3 backend settings
+  ansible.builtin.assert:
+    that:
+      - cluster.tf_backend is defined
+      - cluster.tf_backend.bucket | default('') | length > 0
+      - cluster.tf_backend.key | default('') | length > 0
+      - cluster.tf_backend.access_key | default('') | length > 0
+      - cluster.tf_backend.secret_key | default('') | length > 0
+    fail_msg: >-
+      cluster.tf_backend.{bucket,key,access_key,secret_key} must be set.
+      Put credentials in the vault (tf_backend_access_key / tf_backend_secret_key).
+
+- name: Write OpenTofu S3 backend config
+  ansible.builtin.template:
+    src: backend.hcl.j2
+    dest: "{{ role_path }}/files/backend.hcl"
+    mode: "0600"
+  vars:
+    tf_backend: "{{ cluster.tf_backend }}"
+  no_log: true
+
+- name: Check for leftover local OpenTofu workspaces
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/terraform.tfstate.d"
+  register: local_tfstate_dir
+
+- name: Find leftover local OpenTofu state
+  ansible.builtin.find:
+    paths: "{{ role_path }}/files/terraform.tfstate.d"
+    patterns: "terraform.tfstate"
+    recurse: true
+  register: local_tfstate
+  when: local_tfstate_dir.stat.exists
+
+- name: Block apply while local state is unmigrated
+  ansible.builtin.fail:
+    msg: |
+      Local OpenTofu state still exists under {{ role_path }}/files/terraform.tfstate.d
+      Migrate it once (from a machine that can reach S3), then remove the local copy:
+
+        cd {{ role_path }}/files
+        tofu init -migrate-state -backend-config=backend.hcl
+        rm -rf terraform.tfstate.d
+
+      If S3 already has the migrated state, delete terraform.tfstate.d or set
+      tf_backend_ignore_local_state: true.
+  when:
+    - local_tfstate.matched | default(0) | int > 0
+    - not (cluster.tf_backend_ignore_local_state | default(false) | bool)
 
 - name: Provision VMs in Proxmox with Terraform
   community.general.terraform:
@@ -40,20 +86,30 @@
     check_destroy: true
     state: "{{ cluster.state }}"
     force_init: true
+    init_reconfigure: true
     complex_vars: true
     workspace: "{{ cluster.tf_workspace }}"
+    backend_config_files:
+      - "{{ role_path }}/files/backend.hcl"
     variables:
       vms: "{{ vm_map }}"
       proxmox: "{{ cluster.proxmox }}"
-      # proxmox_ssh: "{{ cluster.proxmox_ssh }}"
+  environment: "{{ tf_backend_env }}"
+  vars:
+    tf_backend_env: >-
+      {{
+        {
+          'AWS_ACCESS_KEY_ID': cluster.tf_backend.access_key,
+          'AWS_SECRET_ACCESS_KEY': cluster.tf_backend.secret_key
+        }
+        | combine(
+            {'AWS_CA_BUNDLE': cluster.tf_backend.custom_ca_bundle}
+            if (cluster.tf_backend.custom_ca_bundle | default('') | length > 0)
+            else {}
+          )
+      }}
   register: tf_output
 
 - name: Display Terraform output
   ansible.builtin.debug:
     var: tf_output.stdout
-
-- name: Waiting for VMs to stabilize
-  ansible.builtin.pause:
-    minutes: 1
-  when: cluster.state == "present"
-

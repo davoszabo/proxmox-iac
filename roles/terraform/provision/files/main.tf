@@ -13,8 +13,7 @@ resource "proxmox_virtual_environment_vm" "node" {
   }
 
   agent {
-    enabled       = each.value.config.agent
-    timeout       = "0m"                # No timeout since we install qemu-agent after provision
+    enabled = each.value.config.agent
   }
 
   cpu {
@@ -59,9 +58,9 @@ resource "proxmox_virtual_environment_vm" "node" {
     }
 
     user_account {
-      username          = each.value.config.user
-      password          = try(each.value.config.password, null)
-      keys              = [each.value.config.ssh_pubkey]
+      username = each.value.config.user
+      password = try(each.value.config.password, null)
+      keys     = length(trimspace(try(each.value.config.ssh_pubkey, ""))) > 0 ? [each.value.config.ssh_pubkey] : []
     }
   }
 

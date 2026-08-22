@@ -16,13 +16,3 @@
         name: terraform/provision
       tags:
         - prov
-
-- name: Post-provision setup
-  hosts: cluster
-  gather_facts: false
-  tasks:
-    - name: Include roles
-      ansible.builtin.import_role:
-        name: terraform/post-provision
-      tags:
-        - post

@@ -1,0 +1,10 @@
+---
+
+- name: Build Debian cloud-init template with Packer
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Include Packer role
+      ansible.builtin.import_role:
+        name: packer/build-template

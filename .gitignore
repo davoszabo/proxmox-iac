@@ -1,4 +1,14 @@
 *.terraform*
+*.tfstate
+*.tfstate.*
+**/terraform.tfstate.d/
+crash.log
 __pycache__
 .vault
+backend.hcl
+
+# Packer build artifacts
+packer/debian-cloud/output/
+packer/debian-cloud/certs/*
+!packer/debian-cloud/certs/.gitkeep
 

@@ -1,0 +1,140 @@
+- name: Gather cluster configs
+  ansible.builtin.set_fact:
+    cluster: "{{ hostvars[groups.cluster[0]] }}"
+
+- name: Require S3 backend and Packer settings
+  ansible.builtin.assert:
+    that:
+      - cluster.tf_backend is defined
+      - cluster.tf_backend.bucket | default('') | length > 0
+      - cluster.tf_backend.access_key | default('') | length > 0
+      - cluster.tf_backend.secret_key | default('') | length > 0
+      - cluster.packer is defined
+      - cluster.packer.template_id is defined
+      - cluster.packer.node | default('') | length > 0
+      - cluster.packer.storage_pool | default('') | length > 0
+    fail_msg: >-
+      cluster.tf_backend and cluster.packer.{template_id,node,storage_pool} must be set.
+
+- name: Check Packer and QEMU are installed
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - packer version
+    - qemu-system-x86_64 --version
+    - qemu-img --version
+  changed_when: false
+
+- name: Stage CA certificates into the Packer context
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ packer_dir }}/certs/"
+    mode: "0644"
+  loop: "{{ lookup('fileglob', ca_cert_glob, wantlist=True) }}"
+
+- name: Create a throwaway SSH key for this Packer build
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: packer-debian-cloud-
+  register: packer_keydir
+
+- name: Generate throwaway ed25519 keypair
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -t
+      - ed25519
+      - -N
+      - ""
+      - -f
+      - "{{ packer_keydir.path }}/id_ed25519"
+      - -C
+      - packer-debian-cloud-ephemeral
+  changed_when: true
+
+- name: Load throwaway public key
+  ansible.builtin.slurp:
+    src: "{{ packer_keydir.path }}/id_ed25519.pub"
+  register: packer_pubkey_b64
+
+- name: Build image and import template
+  block:
+    - name: Initialize Packer plugins
+      ansible.builtin.command:
+        cmd: packer init .
+        chdir: "{{ packer_dir }}"
+      changed_when: false
+
+    - name: Build Debian cloud image with qemu-guest-agent
+      ansible.builtin.command:
+        argv:
+          - packer
+          - build
+          - -var
+          - "accelerator={{ cluster.packer.accelerator | default('kvm') }}"
+          - -var
+          - "timezone={{ cluster.timezone | default('Europe/Budapest') }}"
+          - -var
+          - "ssh_private_key_file={{ packer_keydir.path }}/id_ed25519"
+          - .
+        chdir: "{{ packer_dir }}"
+      environment:
+        PKR_VAR_ssh_public_key: "{{ packer_pubkey_b64.content | b64decode | trim }}"
+      register: packer_build
+
+    - name: Display Packer output
+      ansible.builtin.debug:
+        var: packer_build.stdout
+
+    - name: Write OpenTofu S3 backend config for the template
+      ansible.builtin.template:
+        src: backend.hcl.j2
+        dest: "{{ packer_dir }}/terraform/backend.hcl"
+        mode: "0600"
+      vars:
+        tf_backend: "{{ cluster.tf_backend | combine({'key': cluster.packer.tf_state_key | default('proxmox-iac/debian-cloud-template.tfstate')}) }}"
+      no_log: true
+
+    - name: Import qcow2 and convert to a Proxmox template
+      community.general.terraform:
+        project_path: "{{ packer_dir }}/terraform"
+        binary_path: "/usr/bin/tofu"
+        state: present
+        force_init: true
+        init_reconfigure: true
+        complex_vars: true
+        backend_config_files:
+          - "{{ packer_dir }}/terraform/backend.hcl"
+        variables:
+          proxmox: "{{ cluster.proxmox }}"
+          node_name: "{{ cluster.packer.node }}"
+          template_id: "{{ cluster.packer.template_id }}"
+          template_name: "{{ cluster.packer.template_name | default('debian-13-genericcloud-agent') }}"
+          storage_pool: "{{ cluster.packer.storage_pool }}"
+          iso_storage: "{{ cluster.packer.iso_storage | default('local') }}"
+          image_path: "{{ packer_image | realpath }}"
+          disk_size: "{{ cluster.packer.disk_size | default(10) }}"
+      environment: "{{ tf_backend_env }}"
+      vars:
+        tf_backend_env: >-
+          {{
+            {
+              'AWS_ACCESS_KEY_ID': cluster.tf_backend.access_key,
+              'AWS_SECRET_ACCESS_KEY': cluster.tf_backend.secret_key
+            }
+            | combine(
+                {'AWS_CA_BUNDLE': cluster.tf_backend.custom_ca_bundle}
+                if (cluster.tf_backend.custom_ca_bundle | default('') | length > 0)
+                else {}
+              )
+          }}
+      register: template_tf
+
+    - name: Display template import output
+      ansible.builtin.debug:
+        var: template_tf.stdout
+  always:
+    - name: Remove throwaway SSH key
+      ansible.builtin.file:
+        path: "{{ packer_keydir.path }}"
+        state: absent
+      when: packer_keydir.path is defined

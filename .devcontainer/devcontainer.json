@@ -1,6 +1,6 @@
 {
     "build": { "dockerfile": "Dockerfile" },
-    "runArgs": ["--network", "host"],
+    "runArgs": ["--network", "host", "--device", "/dev/kvm"],
     "mounts": [
         "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
     ]

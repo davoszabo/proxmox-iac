@@ -1,0 +1,19 @@
+bucket       = "{{ tf_backend.bucket }}"
+key          = "{{ tf_backend.key }}"
+region       = "{{ tf_backend.region | default('us-east-1') }}"
+use_lockfile = {{ (tf_backend.use_lockfile | default(true)) | ternary('true', 'false') }}
+insecure     = {{ (tf_backend.insecure | default(false)) | ternary('true', 'false') }}
+{% if tf_backend.custom_ca_bundle | default('') | length > 0 %}
+custom_ca_bundle = "{{ tf_backend.custom_ca_bundle }}"
+{% endif %}
+{% if tf_backend.endpoint | default('') | length > 0 %}
+endpoints = {
+  s3 = "{{ tf_backend.endpoint }}"
+}
+use_path_style              = {{ (tf_backend.use_path_style | default(true)) | ternary('true', 'false') }}
+skip_credentials_validation = true
+skip_requesting_account_id  = true
+skip_metadata_api_check     = true
+skip_region_validation      = true
+skip_s3_checksum            = {{ (tf_backend.skip_s3_checksum | default(true)) | ternary('true', 'false') }}
+{% endif %}
