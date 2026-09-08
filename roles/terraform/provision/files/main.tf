@@ -5,7 +5,7 @@ resource "proxmox_virtual_environment_vm" "node" {
   name            = each.value.name
   tags            = try(each.value.config.tags, null)
   node_name       = each.value.config.target_node
-  keyboard_layout = "hu"
+  keyboard_layout = try(each.value.config.keyboard_layout, "hu")
 
   clone {
     vm_id         = each.value.config.template_id
@@ -26,15 +26,15 @@ resource "proxmox_virtual_environment_vm" "node" {
   }
 
   network_device {
-    bridge        = "vmbr0"
-    model         = "virtio"
+    bridge        = try(each.value.config.network_bridge, "vmbr0")
+    model         = try(each.value.config.network_model, "virtio")
   }
 
   serial_device {
-    device        = "socket"
+    device        = try(each.value.config.serial_device, "socket")
   }
   vga {
-    type          = "serial0"
+    type          = try(each.value.config.vga_type, "serial0")
   }
 
   disk {
@@ -43,8 +43,8 @@ resource "proxmox_virtual_environment_vm" "node" {
     size          = each.value.config.storage_size_gb
     ssd           = each.value.config.storage_ssd
   }
-  boot_order      = ["scsi0"]
-  scsi_hardware   = "virtio-scsi-pci"
+  boot_order      = try(each.value.config.boot_order, ["scsi0"])
+  scsi_hardware   = try(each.value.config.scsi_hardware, "virtio-scsi-pci")
 
   initialization {
     # uncomment and specify the datastore for cloud-init disk if default `local-lvm` is not available

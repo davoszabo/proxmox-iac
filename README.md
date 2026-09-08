@@ -99,6 +99,17 @@ Workflow when you add something like `VM_ha_group`:
 
 Fully generating `.tf` from Ansible templates is possible but loses static validation and is usually worse than one explicit `try()` line per feature.
 
+#### Naming convention
+
+- `VM_<attr>` → a plain top-level resource argument, e.g. `VM_cores` → `config.cores`, `VM_keyboard_layout` → `config.keyboard_layout`.
+- `VM_<block>_<attr>` → a leaf inside a nested provider block, e.g. `VM_network_bridge` / `VM_network_model` → the `network_device` block's `bridge` / `model`; `VM_vga_type` → `vga.type`; `VM_serial_device` → `serial_device.device`.
+- Every wired setting gets a default in `main.tf` matching today's hardcoded value via `try(each.value.config.<key>, <default>)`, so leaving the `VM_*` var unset is always a no-op.
+- `variable "vms"` keeps `config = any` on purpose — an `object()` schema would give type-checking, but this project favors one explicit `try()` line per feature over a second place to edit.
+
+Currently wired this way: `keyboard_layout`, `network_bridge`/`network_model`, `serial_device`, `vga_type`, `boot_order`, `scsi_hardware` (all default to today's values — see caveats below on `scsi_hardware`).
+
+Not parameterizable at all: `lifecycle { prevent_destroy, ignore_changes }`. Terraform requires `lifecycle` meta-argument values to be static literals, and a `for_each` resource shares one `lifecycle` block across every instance — there's no per-VM override possible here, by language design.
+
 ## Bootstrap (until Semaphore is ready)
 
 From the repo root / devcontainer (no Semaphore required):
