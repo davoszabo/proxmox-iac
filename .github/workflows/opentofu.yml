@@ -1,0 +1,51 @@
+name: OpenTofu fmt / validate / test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "roles/terraform/provision/files/**"
+      - "packer/debian-cloud/terraform/**"
+      - ".github/workflows/opentofu.yml"
+  pull_request:
+    paths:
+      - "roles/terraform/provision/files/**"
+      - "packer/debian-cloud/terraform/**"
+      - ".github/workflows/opentofu.yml"
+
+jobs:
+  opentofu:
+    name: ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - roles/terraform/provision/files
+          - packer/debian-cloud/terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.12.6"
+
+      - name: tofu fmt -check
+        working-directory: ${{ matrix.dir }}
+        run: tofu fmt -check -diff -recursive
+
+      # No backend config/credentials in CI - only need provider
+      # plugins downloaded to validate and run mock-provider tests.
+      - name: tofu init (no backend)
+        working-directory: ${{ matrix.dir }}
+        run: tofu init -backend=false -input=false
+
+      - name: tofu validate
+        working-directory: ${{ matrix.dir }}
+        run: tofu validate
+
+      - name: tofu test
+        working-directory: ${{ matrix.dir }}
+        run: tofu test
