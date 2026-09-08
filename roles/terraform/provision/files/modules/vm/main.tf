@@ -50,7 +50,7 @@ resource "proxmox_virtual_environment_vm" "node" {
 
     ip_config {
       ipv4 {
-        address = "${var.ip}/24"
+        address = "${var.ip}/${try(var.config.ip_cidr, 24)}"
         gateway = var.config.gateway
       }
     }
