@@ -8,9 +8,9 @@ __pycache__
 backend.hcl
 
 # Packer build artifacts
-packer/debian-cloud/output/
-packer/debian-cloud/certs/*
-!packer/debian-cloud/certs/.gitkeep
+_packer/debian-cloud/output/
+_packer/debian-cloud/certs/*
+!_packer/debian-cloud/certs/.gitkeep
 
 ## DO NOT PUSH:
 *.bak

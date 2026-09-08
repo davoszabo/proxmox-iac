@@ -1,4 +1,4 @@
-packer_dir: "{{ playbook_dir }}/../packer/debian-cloud"
+packer_dir: "{{ playbook_dir }}/../_packer/debian-cloud"
 packer_image: "{{ packer_dir }}/output/debian-13-genericcloud-agent.qcow2"
-terraform_template_dir: "{{ playbook_dir }}/../terraform/debian-cloud-template"
+terraform_template_dir: "{{ playbook_dir }}/../_terraform/debian-cloud-template"
 ca_cert_glob: "{{ playbook_dir }}/../roles/terraform/post-provision/files/*.crt"

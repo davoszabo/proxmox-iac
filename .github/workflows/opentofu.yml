@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - "terraform/provision/**"
-      - "terraform/debian-cloud-template/**"
+      - "_terraform/provision/**"
+      - "_terraform/debian-cloud-template/**"
       - ".github/workflows/opentofu.yml"
   pull_request:
     paths:
-      - "terraform/provision/**"
-      - "terraform/debian-cloud-template/**"
+      - "_terraform/provision/**"
+      - "_terraform/debian-cloud-template/**"
       - ".github/workflows/opentofu.yml"
 
 jobs:
@@ -21,8 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         dir:
-          - terraform/provision
-          - terraform/debian-cloud-template
+          - _terraform/provision
+          - _terraform/debian-cloud-template
     steps:
       - name: Checkout
         uses: actions/checkout@v4
