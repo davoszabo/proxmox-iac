@@ -4,6 +4,35 @@ Provisioning VMs from a Debian cloud-init template using Ansible and OpenTofu in
 
 The golden image is built with Packer (qemu-guest-agent already installed). OpenTofu clones it and applies native Proxmox cloud-init (`initialization` block — no snippets). State lives in S3.
 
+## Directory layout
+
+```
+terraform/                     # OpenTofu source - runnable standalone with `tofu`, no Ansible needed
+├── provision/                  # Provisions cluster VMs (bpg/proxmox); state in S3
+│   ├── modules/vm/               # One proxmox_virtual_environment_vm per VM `config` object
+│   └── tests/                    # tofu test (mock_provider) - no live Proxmox required
+└── debian-cloud-template/      # Imports the Packer-built qcow2, converts it to a Proxmox template
+    └── tests/
+
+packer/debian-cloud/           # Packer source only - no Terraform lives here
+├── debian-cloud.pkr.hcl
+└── scripts/, templates/, certs/, output/
+
+roles/                          # Thin Ansible orchestration only - no infra source
+├── terraform/
+│   ├── provision/                 # Drives terraform/provision/ via community.general.terraform
+│   └── post-provision/            # Not used by any playbook (see note below)
+└── packer/
+    └── build-template/            # Drives packer/debian-cloud/ + terraform/debian-cloud-template/
+
+playbooks/                      # Entry points: terraform-provision.yaml, packer-build-template.yaml
+inventory/                      # Your inventories + vault (local, not committed)
+```
+
+`.github/workflows/opentofu.yml` runs `tofu fmt -check`, `validate`, and `test` for both `terraform/` directories on every push to `main` and on PRs that touch them.
+
+`roles/terraform/post-provision` is not imported by any playbook — the packages/CA-cert/reboot steps it used to run after provisioning are now baked into the Packer image instead (see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer)). Its `files/` directory is still referenced by `roles/packer/build-template` (`ca_cert_glob`) as the place to drop optional CA certs for the Packer build — those need to be actual `*.crt` files; the glob won't match a `*.crt.bak` suffix.
+
 ### Variable processing
 Variables for the VM and cloud-init config are processed by the `vm_prefix` variable. By default it aggregates all variables starting with the `VM_` prefix (or whatever you have chosen), and creates a map from the inventory.
 
@@ -82,20 +111,21 @@ Workspaces still apply: cluster VMs are stored under `env:/<tf_workspace>/<key>`
 
 Ansible already builds `config` dynamically from every `VM_*` host/group var. That map is passed as `vms` with `config = any`.
 
-OpenTofu **cannot** invent resource arguments from unknown map keys. Each Proxmox attribute still needs an explicit line in `main.tf`, for example:
+OpenTofu **cannot** invent resource arguments from unknown map keys. `terraform/provision/main.tf` passes each VM's whole `config` object straight through to `modules/vm` as one variable, but each Proxmox attribute still needs an explicit line in `terraform/provision/modules/vm/main.tf`, for example:
 
 ```hcl
 # after you add support for HA in the provider schema you use:
 # ha {
-#   group = try(each.value.config.ha_group, null)
+#   group = try(var.config.ha_group, null)
 # }
 ```
 
 Workflow when you add something like `VM_ha_group`:
 
 1. Put `VM_ha_group: foo` in inventory — it appears in `vm_map.*.config.ha_group` automatically.
-2. Wire `try(each.value.config.ha_group, …)` (or a `dynamic` block) in `main.tf` to the matching `bpg/proxmox` argument.
+2. Wire `try(var.config.ha_group, …)` (or a `dynamic` block) in `modules/vm/main.tf` to the matching `bpg/proxmox` argument.
 3. Until step 2 exists, the value is carried in the Ansible map but ignored by OpenTofu (no error).
+4. Add a case (default + override) for the new field to `terraform/provision/tests/vm.tftest.hcl`.
 
 Fully generating `.tf` from Ansible templates is possible but loses static validation and is usually worse than one explicit `try()` line per feature.
 
