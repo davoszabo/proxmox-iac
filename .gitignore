@@ -12,3 +12,11 @@ packer/debian-cloud/output/
 packer/debian-cloud/certs/*
 !packer/debian-cloud/certs/.gitkeep
 
+## DO NOT PUSH:
+*.bak
+BAK/
+VALUES/
+pve-*
+
+# Claude Code session worktrees (local scratch copies, not repo content)
+.claude/worktrees/
