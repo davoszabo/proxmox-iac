@@ -35,7 +35,7 @@ run "ip_cidr_defaults_to_24" {
   }
 
   assert {
-    condition     = module.vm["test-vm"].proxmox_virtual_environment_vm.node.initialization[0].ip_config[0].ipv4[0].address == "10.0.0.5/24"
+    condition     = module.vm["test-vm"].vm.initialization[0].ip_config[0].ipv4[0].address == "10.0.0.5/24"
     error_message = "Expected default CIDR of /24 when config.ip_cidr is unset"
   }
 }
@@ -68,7 +68,7 @@ run "ip_cidr_override" {
   }
 
   assert {
-    condition     = module.vm["test-vm"].proxmox_virtual_environment_vm.node.initialization[0].ip_config[0].ipv4[0].address == "10.0.0.5/26"
+    condition     = module.vm["test-vm"].vm.initialization[0].ip_config[0].ipv4[0].address == "10.0.0.5/26"
     error_message = "Expected config.ip_cidr = 26 to override the default"
   }
 }
