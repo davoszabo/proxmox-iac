@@ -1,16 +1,16 @@
 terraform {
   required_providers {
     proxmox = {
-      source = "bpg/proxmox"
+      source  = "bpg/proxmox"
       version = "0.92.0"
     }
   }
 }
 
 provider "proxmox" {
-  endpoint          = var.proxmox.endpoint
-  api_token         = var.proxmox.api_token
-  insecure          = var.proxmox.tls_insecure
+  endpoint  = var.proxmox.endpoint
+  api_token = var.proxmox.api_token
+  insecure  = var.proxmox.tls_insecure
   # ssh {
   #   username = var.proxmox_ssh.username
   #

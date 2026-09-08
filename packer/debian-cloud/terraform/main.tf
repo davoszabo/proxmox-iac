@@ -54,14 +54,14 @@ resource "proxmox_virtual_environment_file" "image" {
 }
 
 resource "proxmox_virtual_environment_vm" "template" {
-  name      = var.template_name
-  vm_id     = var.template_id
-  node_name = var.node_name
-  template  = true
-  started   = false
-  on_boot   = false
-  bios      = "seabios"
-  tags      = ["template", "debian-13"]
+  name            = var.template_name
+  vm_id           = var.template_id
+  node_name       = var.node_name
+  template        = true
+  started         = false
+  on_boot         = false
+  bios            = "seabios"
+  tags            = ["template", "debian-13"]
   keyboard_layout = "hu"
 
   agent {
