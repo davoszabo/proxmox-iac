@@ -87,7 +87,7 @@
 
     - name: Write OpenTofu S3 backend config for the template
       ansible.builtin.template:
-        src: backend.hcl.j2
+        src: "{{ playbook_dir }}/../templates/backend.hcl.j2"
         dest: "{{ terraform_template_dir }}/backend.hcl"
         mode: "0600"
       vars:
