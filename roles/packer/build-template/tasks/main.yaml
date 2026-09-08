@@ -88,7 +88,7 @@
     - name: Write OpenTofu S3 backend config for the template
       ansible.builtin.template:
         src: backend.hcl.j2
-        dest: "{{ packer_dir }}/terraform/backend.hcl"
+        dest: "{{ terraform_template_dir }}/backend.hcl"
         mode: "0600"
       vars:
         tf_backend: "{{ cluster.tf_backend | combine({'key': cluster.packer.tf_state_key | default('proxmox-iac/debian-cloud-template.tfstate')}) }}"
@@ -96,14 +96,14 @@
 
     - name: Import qcow2 and convert to a Proxmox template
       community.general.terraform:
-        project_path: "{{ packer_dir }}/terraform"
+        project_path: "{{ terraform_template_dir }}"
         binary_path: "/usr/bin/tofu"
         state: present
         force_init: true
         init_reconfigure: true
         complex_vars: true
         backend_config_files:
-          - "{{ packer_dir }}/terraform/backend.hcl"
+          - "{{ terraform_template_dir }}/backend.hcl"
         variables:
           proxmox: "{{ cluster.proxmox }}"
           node_name: "{{ cluster.packer.node }}"
