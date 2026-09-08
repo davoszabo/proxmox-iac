@@ -1,1 +1,2 @@
 vm_prefix: "VM_"
+terraform_provision_dir: "{{ playbook_dir }}/../terraform/provision"

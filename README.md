@@ -117,7 +117,7 @@ ansible-playbook playbooks/terraform-provision.yaml -i inventory/test.yaml
 One-time state migrate (if local `terraform.tfstate.d` still exists). The provision role refuses to apply while that directory is present:
 
 ```sh
-cd roles/terraform/provision/files
+cd terraform/provision
 tofu init -migrate-state -backend-config=backend.hcl
 rm -rf terraform.tfstate.d
 ```

@@ -44,7 +44,7 @@
 - name: Write OpenTofu S3 backend config
   ansible.builtin.template:
     src: backend.hcl.j2
-    dest: "{{ role_path }}/files/backend.hcl"
+    dest: "{{ terraform_provision_dir }}/backend.hcl"
     mode: "0600"
   vars:
     tf_backend: "{{ cluster.tf_backend }}"
@@ -52,12 +52,12 @@
 
 - name: Check for leftover local OpenTofu workspaces
   ansible.builtin.stat:
-    path: "{{ role_path }}/files/terraform.tfstate.d"
+    path: "{{ terraform_provision_dir }}/terraform.tfstate.d"
   register: local_tfstate_dir
 
 - name: Find leftover local OpenTofu state
   ansible.builtin.find:
-    paths: "{{ role_path }}/files/terraform.tfstate.d"
+    paths: "{{ terraform_provision_dir }}/terraform.tfstate.d"
     patterns: "terraform.tfstate"
     recurse: true
   register: local_tfstate
@@ -66,10 +66,10 @@
 - name: Block apply while local state is unmigrated
   ansible.builtin.fail:
     msg: |
-      Local OpenTofu state still exists under {{ role_path }}/files/terraform.tfstate.d
+      Local OpenTofu state still exists under {{ terraform_provision_dir }}/terraform.tfstate.d
       Migrate it once (from a machine that can reach S3), then remove the local copy:
 
-        cd {{ role_path }}/files
+        cd {{ terraform_provision_dir }}
         tofu init -migrate-state -backend-config=backend.hcl
         rm -rf terraform.tfstate.d
 
@@ -81,7 +81,7 @@
 
 - name: Provision VMs in Proxmox with Terraform
   community.general.terraform:
-    project_path: "{{ role_path }}/files"
+    project_path: "{{ terraform_provision_dir }}"
     binary_path: "/usr/bin/tofu"
     check_destroy: true
     state: "{{ cluster.state }}"
@@ -90,7 +90,7 @@
     complex_vars: true
     workspace: "{{ cluster.tf_workspace }}"
     backend_config_files:
-      - "{{ role_path }}/files/backend.hcl"
+      - "{{ terraform_provision_dir }}/backend.hcl"
     variables:
       vms: "{{ vm_map }}"
       proxmox: "{{ cluster.proxmox }}"
