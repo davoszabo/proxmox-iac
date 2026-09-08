@@ -20,18 +20,18 @@ packer/debian-cloud/           # Packer source only - no Terraform lives here
 
 roles/                          # Thin Ansible orchestration only - no infra source
 ├── terraform/
-│   ├── provision/                 # Drives terraform/provision/ via community.general.terraform
-│   └── post-provision/            # Not used by any playbook (see note below)
+│   └── provision/                 # Drives terraform/provision/ via community.general.terraform
 └── packer/
     └── build-template/            # Drives packer/debian-cloud/ + terraform/debian-cloud-template/
 
+templates/backend.hcl.j2        # Shared OpenTofu S3 backend template, used by both roles above
 playbooks/                      # Entry points: terraform-provision.yaml, packer-build-template.yaml
 inventory/                      # Your inventories + vault (local, not committed)
 ```
 
 `.github/workflows/opentofu.yml` runs `tofu fmt -check`, `validate`, and `test` for both `terraform/` directories on every push to `main` and on PRs that touch them.
 
-`roles/terraform/post-provision` is not imported by any playbook — the packages/CA-cert/reboot steps it used to run after provisioning are now baked into the Packer image instead (see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer)). Its `files/` directory is still referenced by `roles/packer/build-template` (`ca_cert_glob`) as the place to drop optional CA certs for the Packer build — those need to be actual `*.crt` files; the glob won't match a `*.crt.bak` suffix.
+The old `roles/terraform/post-provision` role — packages/CA-cert/reboot steps that used to run after provisioning, now baked into the Packer image instead (see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer)) — is archived as `roles/terraform/post-provision.bak` (matches the `*.bak` gitignore rule, not part of the repo). `roles/packer/build-template`'s `ca_cert_glob` still points at the old `roles/terraform/post-provision/files/*.crt` path for staging optional CA certs into the Packer build; that path no longer exists, so the cert-staging task currently matches nothing (fails open — no error, just skips). Update `ca_cert_glob` if you want CA cert staging back.
 
 ### Variable processing
 Variables for the VM and cloud-init config are processed by the `vm_prefix` variable. By default it aggregates all variables starting with the `VM_` prefix (or whatever you have chosen), and creates a map from the inventory.
