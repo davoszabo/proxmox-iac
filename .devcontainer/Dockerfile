@@ -1,10 +1,10 @@
 FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
 
 # Install Ansible essentials and dev tools
-ARG ANSIBLE_VERSION="12.0.0"
+ARG ANSIBLE_VERSION="14.3.1"
 RUN pip install ansible==${ANSIBLE_VERSION}
 
-ARG ANSIBLE_DEV_TOOLS_VERSION="25.8.3"
+ARG ANSIBLE_DEV_TOOLS_VERSION="26.8.0"
 RUN pip install ansible-dev-tools==${ANSIBLE_DEV_TOOLS_VERSION}
 
 # Install OpenTofu (Terraform)
