@@ -1,5 +1,5 @@
 - name: Build vm_map from the prefixed variables ({{ vm_prefix }})
-  set_fact:
+  ansible.builtin.set_fact:
     vm_map: >-
       {{
         vm_map | default({}) | combine({
@@ -32,18 +32,22 @@
 - name: Require S3 backend settings
   ansible.builtin.assert:
     that:
+      # "planned" is not supported: community.general.terraform needs a plan_file for it.
+      # For a dry run use --check, which runs `tofu plan`.
+      - cluster.state | default('present') in ['present', 'absent']
       - cluster.tf_backend is defined
       - cluster.tf_backend.bucket | default('') | length > 0
       - cluster.tf_backend.key | default('') | length > 0
       - cluster.tf_backend.access_key | default('') | length > 0
       - cluster.tf_backend.secret_key | default('') | length > 0
     fail_msg: >-
+      state must be present or absent (use --check for a plan), and
       cluster.tf_backend.{bucket,key,access_key,secret_key} must be set.
       Put credentials in the vault (tf_backend_access_key / tf_backend_secret_key).
 
 - name: Write OpenTofu S3 backend config
   ansible.builtin.template:
-    src: "{{ playbook_dir }}/../templates/backend.hcl.j2"
+    src: "{{ playbook_dir | dirname }}/templates/backend.hcl.j2"
     dest: "{{ terraform_provision_dir }}/backend.hcl"
     mode: "0600"
   vars:
@@ -84,7 +88,7 @@
     project_path: "{{ terraform_provision_dir }}"
     binary_path: "/usr/bin/tofu"
     check_destroy: true
-    state: "{{ cluster.state }}"
+    state: "{{ cluster.state | default('present') }}"
     force_init: true
     init_reconfigure: true
     complex_vars: true
