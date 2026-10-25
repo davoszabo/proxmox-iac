@@ -31,7 +31,7 @@ inventory/                      # Your inventories + vault (local, not committed
 
 `.github/workflows/opentofu.yml` runs `tofu fmt -check`, `validate`, and `test` for both `tools/terraform/` directories on every push to `main` and on PRs that touch them.
 
-The old `roles/terraform/post-provision` role — packages/CA-cert/reboot steps that used to run after provisioning, now baked into the Packer image instead (see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer)) — is archived as `roles/terraform/post-provision.bak` (matches the `*.bak` gitignore rule, not part of the repo). `roles/packer/build-template`'s `ca_cert_glob` still points at the old `roles/terraform/post-provision/files/*.crt` path for staging optional CA certs into the Packer build; that path no longer exists, so the cert-staging task currently matches nothing (fails open — no error, just skips). Update `ca_cert_glob` if you want CA cert staging back.
+The old `roles/terraform/post-provision` role — packages/CA-cert/reboot steps that used to run after provisioning, now baked into the Packer image instead (see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer)) — is archived as `roles/terraform/post-provision.bak` (matches the `*.bak` gitignore rule, not part of the repo). CA certs for the golden image are no longer read from a file path on the runner; they come from inventory/vault (`packer.ca_certs`, see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer)), so the same inventory produces the same image on any runner, unattended.
 
 ### Variable processing
 Variables for the VM and cloud-init config are processed by the `vm_prefix` variable. By default it aggregates all variables starting with the `VM_` prefix (or whatever you have chosen), and creates a map from the inventory.
@@ -78,8 +78,9 @@ Create an inventory and a matching vault (see `inventory/`). Add these vault key
 - `password` (cloud-init user password)
 - `tf_backend_access_key`
 - `tf_backend_secret_key`
+- any `ca_cert_*` keys referenced by `packer.ca_certs` (PEM content, optional — see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer))
 
-The Proxmox API token needs `VM.GuestAgent.Audit` (PVE 9 removed `VM.Monitor`).
+The Proxmox API token needs `VM.GuestAgent.Audit` (PVE 9 removed `VM.Monitor`), and `VM.Migrate` if any VM uses `VM_template_node`.
 
 ## 1. Remote OpenTofu state (S3)
 
@@ -126,6 +127,17 @@ Workflow when you add something like `VM_ha_group`:
 2. Wire `try(var.config.ha_group, …)` (or a `dynamic` block) in `modules/vm/main.tf` to the matching `bpg/proxmox` argument.
 3. Until step 2 exists, the value is carried in the Ansible map but ignored by OpenTofu (no error).
 4. Add a case (default + override) for the new field to `tools/terraform/provision/tests/vm.tftest.hcl`.
+
+Optional per-VM keys already wired into `modules/vm/main.tf` include:
+
+- `VM_memory_balloon_max` - enables ballooning: `VM_memory` becomes the guaranteed minimum (Proxmox `balloon`), this the maximum (Proxmox `memory`). Unset = fixed `VM_memory`, no balloon device. Must be >= `VM_memory`.
+- `VM_template_node` - node that holds `VM_template_id`, when it differs from `VM_target_node`. On non-shared storage the provider clones on that node, then migrates the clone to `VM_target_node` (the token needs `VM.Migrate`).
+
+- `VM_storage_discard` - disk `discard` (default `on`, so guest TRIM frees space on ZFS/LVM-thin); set `ignore` to disable.
+
+The VM resource sets `migrate = true`: changing `VM_target_node` migrates the VM instead of re-creating it. After migrating a VM by hand in Proxmox, update its `VM_target_node` - otherwise the next apply migrates it back. To spread the clone I/O, create VMs on the template's node first, migrate them later, then update the inventory; `--check` should then show no changes.
+
+`vms` is typed `any`, so hosts may set different `VM_*` keys; a typed `map(object(...))` cannot hold elements of different shapes.
 
 Fully generating `.tf` from Ansible templates is possible but loses static validation and is usually worse than one explicit `try()` line per feature.
 
@@ -180,9 +192,11 @@ Packer is used **only** to build the template:
 
 1. Download Debian 13 genericcloud.
 2. Boot it locally with QEMU and a throwaway SSH key (generated for that run, never stored).
-3. Install `qemu-guest-agent` plus the former post-provision packages (`ufw`, `chrony`, `iotop`, `nfs-common`) and optional CA certs from `roles/terraform/post-provision/files/*.crt`.
+3. Install `packer.packages` (default: `qemu-guest-agent` plus the former post-provision packages `ufw`, `chrony`, `iotop`, `nfs-common`), enable `packer.services`, and add optional CA certs supplied via `packer.ca_certs` in the inventory (each entry's `content` is written to `tools/packer/debian-cloud/certs/<name>.crt` and trusted with `update-ca-certificates`).
 4. `cloud-init clean`, wipe machine-id and SSH host keys, delete the throwaway authorized_keys.
 5. Upload the qcow2 through the Proxmox API (`import` content type) and convert VM `packer.template_id` to a template.
+
+Image inputs are set under `packer:` in the inventory; any key left out keeps the default in `debian-cloud.pkr.hcl`: `timezone` (falls back to the top-level `timezone`), `iso_url`, `iso_checksum`, `packages` (replaces the default list; must keep `qemu-guest-agent`), `services`, `accelerator`, `disk_size` (GB, also used for the template disk). See `inventory/packer-debian13.yaml` for a standalone build-only inventory that runs on the local machine.
 
 Clone-time user, password, SSH key, and network still come from OpenTofu `initialization` (Proxmox-native cloud-init, not snippets). `VM_ssh_pubkey` is optional.
 
@@ -199,6 +213,8 @@ ansible-playbook playbooks/packer-build-template.yaml -i inventory/test.yaml
 ```
 
 Point `VM_template_id` at the resulting template (9000 in the example inventory).
+
+Re-running the playbook rebuilds the image; the new qcow2 is re-uploaded and the template VM is recreated with it (`replace_triggered_by`). Full clones of the old template are unaffected. To retry only the import with the image already in `tools/packer/debian-cloud/output/`, add `-e packer_skip_build=true`.
 
 The Ansible post-provision play is gone: the agent is already in the image, so OpenTofu can wait for it with the default timeout.
 
