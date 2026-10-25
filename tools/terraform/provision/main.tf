@@ -7,8 +7,3 @@ module "vm" {
   ip     = each.value.ip
   config = each.value.config
 }
-
-moved {
-  from = proxmox_virtual_environment_vm.node
-  to   = module.vm.proxmox_virtual_environment_vm.node
-}

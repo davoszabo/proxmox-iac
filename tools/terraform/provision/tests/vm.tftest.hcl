@@ -100,6 +100,16 @@ run "optional_fields_default" {
   }
 
   assert {
+    condition     = module.vm["test-vm"].vm.disk[0].discard == "on"
+    error_message = "Expected disk discard to default to on"
+  }
+
+  assert {
+    condition     = module.vm["test-vm"].vm.migrate == true
+    error_message = "Expected migrate = true so a target_node change migrates instead of re-creating"
+  }
+
+  assert {
     condition     = module.vm["test-vm"].vm.keyboard_layout == "hu"
     error_message = "Expected default keyboard_layout of 'hu'"
   }
@@ -181,9 +191,15 @@ run "optional_fields_override" {
           scsi_hardware   = "lsi"
           password        = "s3cret"
           ssh_pubkey      = "ssh-ed25519 AAAATESTKEY"
+          storage_discard = "ignore"
         }
       }
     }
+  }
+
+  assert {
+    condition     = module.vm["test-vm"].vm.disk[0].discard == "ignore"
+    error_message = "Expected config.storage_discard to override the default"
   }
 
   assert {
@@ -295,4 +311,103 @@ run "multiple_vms_created_independently" {
     condition     = module.vm["db-01"].vm.agent[0].enabled == false
     error_message = "db-01's agent.enabled should be false as configured"
   }
+}
+
+run "memory_ballooning_and_template_node" {
+  command = plan
+
+  variables {
+    vms = {
+      balloon-vm = {
+        name = "balloon-vm"
+        ip   = "10.0.0.7"
+        id   = 9010
+        config = {
+          target_node        = "pve-mini"
+          template_node      = "pve-tower"
+          template_id        = 9000
+          agent              = true
+          cores              = 4
+          cpu_type           = "x86-64-v3"
+          memory             = 4096
+          memory_balloon_max = 6144
+          storage_pool       = "zfs-repl"
+          storage_size_gb    = 40
+          storage_ssd        = true
+          gateway            = "10.0.0.1"
+          user               = "ansible"
+        }
+      }
+      fixed-vm = {
+        name = "fixed-vm"
+        ip   = "10.0.0.8"
+        id   = 9011
+        config = {
+          target_node     = "pve-mini"
+          template_id     = 9000
+          agent           = true
+          cores           = 2
+          cpu_type        = "host"
+          memory          = 2048
+          storage_pool    = "zfs-repl"
+          storage_size_gb = 20
+          storage_ssd     = true
+          gateway         = "10.0.0.1"
+          user            = "ansible"
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = module.vm["balloon-vm"].vm.memory[0].dedicated == 6144 && module.vm["balloon-vm"].vm.memory[0].floating == 4096
+    error_message = "Expected max (dedicated) = memory_balloon_max and guaranteed (floating) = memory"
+  }
+
+  assert {
+    condition     = module.vm["fixed-vm"].vm.memory[0].dedicated == 2048 && module.vm["fixed-vm"].vm.memory[0].floating == 0
+    error_message = "Expected no ballooning (floating = 0) when memory_balloon_max is unset"
+  }
+
+  assert {
+    condition     = module.vm["balloon-vm"].vm.clone[0].node_name == "pve-tower"
+    error_message = "Expected clone.node_name to come from config.template_node"
+  }
+
+  assert {
+    condition     = module.vm["fixed-vm"].vm.clone[0].node_name == null
+    error_message = "Expected clone.node_name to stay unset without config.template_node"
+  }
+}
+
+run "memory_balloon_max_below_memory_fails" {
+  command = plan
+
+  variables {
+    vms = {
+      bad-vm = {
+        name = "bad-vm"
+        ip   = "10.0.0.9"
+        id   = 9012
+        config = {
+          target_node        = "pve-mini"
+          template_id        = 9000
+          agent              = true
+          cores              = 2
+          cpu_type           = "host"
+          memory             = 4096
+          memory_balloon_max = 2048
+          storage_pool       = "zfs-repl"
+          storage_size_gb    = 20
+          storage_ssd        = true
+          gateway            = "10.0.0.1"
+          user               = "ansible"
+        }
+      }
+    }
+  }
+
+  expect_failures = [
+    var.vms,
+  ]
 }
