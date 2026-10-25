@@ -184,7 +184,7 @@
     - name: Import qcow2 and convert to a Proxmox template
       community.general.terraform:
         project_path: "{{ terraform_template_dir }}"
-        binary_path: "/usr/bin/tofu"
+        binary_path: "{{ tofu_binary_path }}"
         state: present
         force_init: true
         init_reconfigure: true

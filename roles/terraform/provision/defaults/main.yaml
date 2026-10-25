@@ -6,3 +6,6 @@ tf_backend_ca_file: >-
   {{ (terraform_provision_dir ~ '/backend-ca.crt')
      if (cluster.tf_backend.ca_cert | default('') | length > 0)
      else (cluster.tf_backend.custom_ca_bundle | default('')) }}
+# Absolute path of tofu (community.general.terraform needs one): /usr/bin/tofu in the
+# devcontainer, /usr/local/bin/tofu in the Semaphore image. Override with -e if not on PATH.
+tofu_binary_path: "{{ lookup('ansible.builtin.pipe', 'command -v tofu') }}"
