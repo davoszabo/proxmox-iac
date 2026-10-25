@@ -1,4 +1,15 @@
 packer_dir: "{{ playbook_dir }}/../tools/packer/debian-cloud"
 packer_image: "{{ packer_dir }}/output/debian-13-genericcloud-agent.qcow2"
 terraform_template_dir: "{{ playbook_dir }}/../tools/terraform/debian-cloud-template"
-ca_cert_glob: "{{ playbook_dir }}/../roles/terraform/post-provision/files/*.crt"
+# Reuse an existing packer_image and only run the OpenTofu import (e.g. after an import-only failure).
+# -e packer_skip_build=true
+packer_skip_build: false
+# cluster.packer keys forwarded verbatim to Packer (see tools/packer/debian-cloud/debian-cloud.pkr.hcl).
+# timezone and disk_size are forwarded too, but need translating, so they are handled in the task.
+packer_passthrough_vars:
+  - accelerator
+  - build_user
+  - iso_url
+  - iso_checksum
+  - packages
+  - services

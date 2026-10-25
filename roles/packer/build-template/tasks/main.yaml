@@ -24,18 +24,50 @@
     - qemu-img --version
   changed_when: false
 
+- name: Check for an existing image to reuse
+  ansible.builtin.stat:
+    path: "{{ packer_image }}"
+  register: packer_existing_image
+  when: packer_skip_build | bool
+
+- name: Require an existing image when skipping the Packer build
+  ansible.builtin.assert:
+    that:
+      - packer_existing_image.stat.exists
+    fail_msg: "packer_skip_build is set, but {{ packer_image }} does not exist. Run once without it."
+  when: packer_skip_build | bool
+
+- name: Find previously staged CA certificates
+  ansible.builtin.find:
+    paths: "{{ packer_dir }}/certs"
+    patterns: "*.crt"
+  register: staged_ca_certs
+
+- name: Clear previously staged CA certificates
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ staged_ca_certs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
 - name: Stage CA certificates into the Packer context
   ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ packer_dir }}/certs/"
+    content: "{{ item.content }}"
+    dest: "{{ packer_dir }}/certs/{{ item.name }}.crt"
     mode: "0644"
-  loop: "{{ lookup('fileglob', ca_cert_glob, wantlist=True) }}"
+  loop: "{{ cluster.packer.ca_certs | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
 
+# The temp dir, key, var-file and backend.hcl are local scratch, so they are also created under
+# --check: that lets `packer validate` and `tofu plan` run for real. Only `packer build` is skipped.
 - name: Create a throwaway SSH key for this Packer build
   ansible.builtin.tempfile:
     state: directory
     prefix: packer-debian-cloud-
   register: packer_keydir
+  check_mode: false
 
 - name: Generate throwaway ed25519 keypair
   ansible.builtin.command:
@@ -50,11 +82,13 @@
       - -C
       - packer-debian-cloud-ephemeral
   changed_when: true
+  check_mode: false
 
 - name: Load throwaway public key
   ansible.builtin.slurp:
     src: "{{ packer_keydir.path }}/id_ed25519.pub"
   register: packer_pubkey_b64
+  check_mode: false
 
 - name: Build image and import template
   block:
@@ -63,33 +97,72 @@
         cmd: packer init .
         chdir: "{{ packer_dir }}"
       changed_when: false
+      check_mode: false
+
+    # Only keys set in the inventory are passed; anything omitted keeps the Packer default.
+    - name: Write Packer variables file
+      ansible.builtin.copy:
+        content: "{{ packer_build_vars | to_nice_json }}"
+        dest: "{{ packer_keydir.path }}/build.pkrvars.json"
+        mode: "0600"
+      check_mode: false
+      vars:
+        packer_build_vars: >-
+          {{
+            cluster.packer
+            | dict2items
+            | selectattr('key', 'in', packer_passthrough_vars)
+            | items2dict
+            | combine(
+                {'timezone': cluster.timezone} if cluster.timezone is defined else {},
+                {'timezone': cluster.packer.timezone} if cluster.packer.timezone is defined else {},
+                {'disk_size': (cluster.packer.disk_size | string) ~ 'G'} if cluster.packer.disk_size is defined else {},
+                {'ssh_private_key_file': packer_keydir.path ~ '/id_ed25519'}
+              )
+          }}
+
+    - name: Validate Packer template and variables
+      ansible.builtin.command:
+        argv:
+          - packer
+          - validate
+          - "-var-file={{ packer_keydir.path }}/build.pkrvars.json"
+          # validate has no -force and rejects an existing output dir; point it at a fresh path
+          # so --check never deletes a previous image.
+          - "-var=output_directory={{ packer_keydir.path }}/output"
+          - .
+        chdir: "{{ packer_dir }}"
+      environment:
+        PKR_VAR_ssh_public_key: "{{ packer_pubkey_b64.content | b64decode | trim }}"
+      changed_when: false
+      check_mode: false
 
     - name: Build Debian cloud image with qemu-guest-agent
       ansible.builtin.command:
         argv:
           - packer
           - build
-          - -var
-          - "accelerator={{ cluster.packer.accelerator | default('kvm') }}"
-          - -var
-          - "timezone={{ cluster.timezone | default('Europe/Budapest') }}"
-          - -var
-          - "ssh_private_key_file={{ packer_keydir.path }}/id_ed25519"
+          - -force  # replace a previous build's output/
+          - "-var-file={{ packer_keydir.path }}/build.pkrvars.json"
           - .
         chdir: "{{ packer_dir }}"
       environment:
         PKR_VAR_ssh_public_key: "{{ packer_pubkey_b64.content | b64decode | trim }}"
       register: packer_build
+      changed_when: true  # every build produces a fresh image
+      when: not packer_skip_build | bool
 
     - name: Display Packer output
       ansible.builtin.debug:
         var: packer_build.stdout
+      when: not ansible_check_mode and not packer_skip_build | bool
 
     - name: Write OpenTofu S3 backend config for the template
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../templates/backend.hcl.j2"
+        src: "{{ playbook_dir | dirname }}/templates/backend.hcl.j2"
         dest: "{{ terraform_template_dir }}/backend.hcl"
         mode: "0600"
+      check_mode: false
       vars:
         tf_backend: "{{ cluster.tf_backend | combine({'key': cluster.packer.tf_state_key | default('proxmox-iac/debian-cloud-template.tfstate')}) }}"
       no_log: true
@@ -138,3 +211,4 @@
         path: "{{ packer_keydir.path }}"
         state: absent
       when: packer_keydir.path is defined
+      check_mode: false
