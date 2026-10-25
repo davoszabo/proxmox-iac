@@ -176,7 +176,7 @@
       vars:
         tf_backend: >-
           {{ cluster.tf_backend | combine({
-               'key': cluster.packer.tf_state_key | default('proxmox-iac/debian-cloud-template.tfstate'),
+               'key': cluster.packer.tf_state_key | default('proxmox-iac/templates/debian-13-genericcloud-agent.tfstate'),
                'custom_ca_bundle': tf_backend_ca_file
              }) }}
       no_log: true

@@ -34,7 +34,8 @@ cluster:
     # --- OpenTofu state in S3 -----------------------------------------------------------------
     tf_backend:
       bucket: tfstate                               # REQUIRED
-      key: proxmox-iac/my-cluster.tfstate           # REQUIRED (provision); object = env:/<tf_workspace>/<key>
+      key: vms.tfstate                              # REQUIRED (provision)
+      workspace_key_prefix: proxmox-iac/clusters    # optional, env:. Object = <prefix>/<tf_workspace>/<key>
       region: eu-central-1                          # optional, us-east-1. Must match the server's SigV4 region
       endpoint: "https://s3.example.lan"            # optional, unset = AWS S3. Set for RustFS/MinIO
       use_path_style: true                          # optional, true (only used with endpoint)
@@ -59,7 +60,7 @@ cluster:
       storage_pool: local-zfs               # REQUIRED, template disk datastore
       iso_storage: local                    # optional, local. Needs the "import" content type enabled
       template_name: debian-13-genericcloud-agent             # optional
-      tf_state_key: proxmox-iac/debian-cloud-template.tfstate  # optional
+      tf_state_key: proxmox-iac/templates/debian-13-genericcloud-agent.tfstate  # optional, own object (no workspace)
       disk_size: 10                         # optional, 10 (GB). Clones can only grow from this
       timezone: Europe/Budapest             # optional, falls back to timezone above
       accelerator: kvm                      # optional, kvm | tcg (tcg = no /dev/kvm, very slow)

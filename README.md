@@ -122,7 +122,8 @@ State is no longer stored next to the Terraform files. Configure `tf_backend` in
 ```yaml
 tf_backend:
   bucket: tfstate
-  key: proxmox-iac/terraform.tfstate
+  key: vms.tfstate
+  workspace_key_prefix: proxmox-iac/clusters
   region: us-east-1
   endpoint: "https://s3.example.corp"   # omit for real AWS S3
   use_path_style: true                  # typical for MinIO / Ceph RGW
@@ -139,7 +140,13 @@ OpenTofu S3 backend options used here:
 - `custom_ca_bundle` — PEM file with your root/intermediate CA (also sets `AWS_CA_BUNDLE` for the Ansible task env)
 - `insecure: true` — skip TLS verify (last resort)
 
-Workspaces still apply: cluster VMs are stored under `env:/<tf_workspace>/<key>`. The Packer template uses a separate object (`packer.tf_state_key`).
+Each cluster is a workspace (`tf_workspace`), so its VMs are stored at `<workspace_key_prefix>/<tf_workspace>/<key>`; without `workspace_key_prefix` OpenTofu uses `env:`. The template uses the default workspace and its own object, `packer.tf_state_key`. Resulting layout:
+
+```
+tfstate/proxmox-iac/
+  templates/debian-13-genericcloud-agent.tfstate
+  clusters/<tf_workspace>/vms.tfstate
+```
 
 ### Dynamic `VM_*` → Terraform
 
