@@ -117,3 +117,37 @@ run "overrides_apply" {
     error_message = "Expected uploaded file name to follow the overridden template_name"
   }
 }
+
+# Rebuild path: first apply, then a change that replaces the uploaded file must also replace the
+# template VM (replace_triggered_by). tofu test cannot assert on planned actions, so the plan below
+# is checked by running `tofu test -verbose` and looking for "replace_triggered_by" on the VM.
+run "rebuild_initial" {
+  command = apply
+
+  override_resource {
+    target = proxmox_virtual_environment_file.image
+    values = {
+      id = "local:import/debian-13-genericcloud-agent.qcow2"
+    }
+  }
+}
+
+run "rebuild_replaces_template" {
+  command = plan
+
+  variables {
+    template_name = "debian-13-rebuilt"
+  }
+
+  override_resource {
+    target = proxmox_virtual_environment_file.image
+    values = {
+      id = "local:import/debian-13-rebuilt.qcow2"
+    }
+  }
+
+  assert {
+    condition     = proxmox_virtual_environment_vm.template.disk[0].import_from == "local:import/debian-13-rebuilt.qcow2"
+    error_message = "Expected the recreated template to import the newly uploaded image"
+  }
+}

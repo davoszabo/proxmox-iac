@@ -110,5 +110,11 @@ resource "proxmox_virtual_environment_vm" "template" {
     ignore_changes = [
       disk[0].import_from,
     ]
+    # A rebuilt qcow2 (new mtime/size) makes the provider re-upload the file, but the VM's disk was
+    # imported once and would keep the old image. Recreate the template whenever the file is replaced.
+    # Full clones made from the old template are independent and unaffected.
+    replace_triggered_by = [
+      proxmox_virtual_environment_file.image,
+    ]
   }
 }
