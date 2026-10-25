@@ -1,0 +1,12 @@
+---
+exclude_paths:
+  - .claude/
+  - inventory/          # local, uncommitted inventories and vaults
+  - "**/*.bak"          # archived roles/files (gitignored)
+  - tools/              # Terraform/Packer source, not Ansible
+
+skip_list:
+  # Roles are grouped by tool (roles/terraform/provision, roles/packer/build-template) on purpose;
+  # see README "Directory layout". Imported by path, with hyphenated directory names.
+  - role-name
+  - role-name[path]
