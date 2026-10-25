@@ -20,3 +20,6 @@ pve-*
 
 # Claude Code session worktrees (local scratch copies, not repo content)
 .claude/worktrees/
+
+# Inventories + vaults are local / supplied by the runner (Semaphore), never committed
+inventory/
