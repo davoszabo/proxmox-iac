@@ -9,12 +9,22 @@
       - cluster.tf_backend.bucket | default('') | length > 0
       - cluster.tf_backend.access_key | default('') | length > 0
       - cluster.tf_backend.secret_key | default('') | length > 0
+      - cluster.proxmox.api_token | default('') | length > 0
       - cluster.packer is defined
       - cluster.packer.template_id is defined
       - cluster.packer.node | default('') | length > 0
       - cluster.packer.storage_pool | default('') | length > 0
     fail_msg: >-
-      cluster.tf_backend and cluster.packer.{template_id,node,storage_pool} must be set.
+      cluster.tf_backend.{bucket,access_key,secret_key}, cluster.proxmox.api_token and
+      cluster.packer.{template_id,node,storage_pool} must be set.
+
+- name: Write the S3 backend CA from tf_backend.ca_cert
+  ansible.builtin.copy:
+    content: "{{ cluster.tf_backend.ca_cert }}"
+    dest: "{{ tf_backend_ca_file }}"
+    mode: "0644"
+  check_mode: false
+  when: cluster.tf_backend.ca_cert | default('') | length > 0
 
 - name: Check Packer and QEMU are installed
   ansible.builtin.command: "{{ item }}"
@@ -164,7 +174,11 @@
         mode: "0600"
       check_mode: false
       vars:
-        tf_backend: "{{ cluster.tf_backend | combine({'key': cluster.packer.tf_state_key | default('proxmox-iac/debian-cloud-template.tfstate')}) }}"
+        tf_backend: >-
+          {{ cluster.tf_backend | combine({
+               'key': cluster.packer.tf_state_key | default('proxmox-iac/debian-cloud-template.tfstate'),
+               'custom_ca_bundle': tf_backend_ca_file
+             }) }}
       no_log: true
 
     - name: Import qcow2 and convert to a Proxmox template
@@ -195,8 +209,8 @@
               'AWS_SECRET_ACCESS_KEY': cluster.tf_backend.secret_key
             }
             | combine(
-                {'AWS_CA_BUNDLE': cluster.tf_backend.custom_ca_bundle}
-                if (cluster.tf_backend.custom_ca_bundle | default('') | length > 0)
+                {'AWS_CA_BUNDLE': tf_backend_ca_file}
+                if (tf_backend_ca_file | length > 0)
                 else {}
               )
           }}

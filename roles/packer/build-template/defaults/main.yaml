@@ -13,3 +13,9 @@ packer_passthrough_vars:
   - iso_checksum
   - packages
   - services
+# PEM text in tf_backend.ca_cert is written to this file and used as the S3 backend CA bundle;
+# without it, tf_backend.custom_ca_bundle (a path on the runner) is used as-is.
+tf_backend_ca_file: >-
+  {{ (terraform_template_dir ~ '/backend-ca.crt')
+     if (cluster.tf_backend.ca_cert | default('') | length > 0)
+     else (cluster.tf_backend.custom_ca_bundle | default('')) }}

@@ -6,6 +6,7 @@ crash.log
 __pycache__
 .vault
 backend.hcl
+backend-ca.crt
 
 # Packer build artifacts
 tools/packer/debian-cloud/output/

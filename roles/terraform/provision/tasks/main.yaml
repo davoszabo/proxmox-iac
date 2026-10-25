@@ -40,18 +40,28 @@
       - cluster.tf_backend.key | default('') | length > 0
       - cluster.tf_backend.access_key | default('') | length > 0
       - cluster.tf_backend.secret_key | default('') | length > 0
+      - cluster.proxmox.api_token | default('') | length > 0
     fail_msg: >-
       state must be present or absent (use --check for a plan), and
-      cluster.tf_backend.{bucket,key,access_key,secret_key} must be set.
-      Put credentials in the vault (tf_backend_access_key / tf_backend_secret_key).
+      cluster.tf_backend.{bucket,key,access_key,secret_key} and cluster.proxmox.api_token must be set.
+      Supply credentials from the vault or from environment variables (e.g. Semaphore secrets).
+
+- name: Write the S3 backend CA from tf_backend.ca_cert
+  ansible.builtin.copy:
+    content: "{{ cluster.tf_backend.ca_cert }}"
+    dest: "{{ tf_backend_ca_file }}"
+    mode: "0644"
+  check_mode: false
+  when: cluster.tf_backend.ca_cert | default('') | length > 0
 
 - name: Write OpenTofu S3 backend config
   ansible.builtin.template:
     src: "{{ playbook_dir | dirname }}/templates/backend.hcl.j2"
     dest: "{{ terraform_provision_dir }}/backend.hcl"
     mode: "0600"
+  check_mode: false
   vars:
-    tf_backend: "{{ cluster.tf_backend }}"
+    tf_backend: "{{ cluster.tf_backend | combine({'custom_ca_bundle': tf_backend_ca_file}) }}"
   no_log: true
 
 - name: Check for leftover local OpenTofu workspaces
@@ -107,8 +117,8 @@
           'AWS_SECRET_ACCESS_KEY': cluster.tf_backend.secret_key
         }
         | combine(
-            {'AWS_CA_BUNDLE': cluster.tf_backend.custom_ca_bundle}
-            if (cluster.tf_backend.custom_ca_bundle | default('') | length > 0)
+            {'AWS_CA_BUNDLE': tf_backend_ca_file}
+            if (tf_backend_ca_file | length > 0)
             else {}
           )
       }}
