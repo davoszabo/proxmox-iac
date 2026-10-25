@@ -1,0 +1,131 @@
+# Example inventory: every key the playbooks read, with its default.
+#   REQUIRED  - the play fails (or OpenTofu errors) without it
+#   optional  - shown with its default; delete the line to keep the default
+#
+# Works for both playbooks:
+#   playbooks/packer-build-template.yaml  reads cluster.vars: tf_backend, proxmox, packer
+#   playbooks/terraform-provision.yaml    reads cluster.vars: state, tf_workspace, tf_backend, proxmox
+#                                         and VM_* / ansible_host / vmid from every host in `cluster`
+# The playbooks themselves run on localhost; the `cluster` hosts are only data (one per VM).
+#
+# Secrets are read from environment variables, so the file holds none and can be pasted into
+# Semaphore as-is: add them under Variable Groups > Secrets as environment variables.
+# Locally: export them, or swap each lookup for a vault var (e.g. "{{ vault.proxmox_api_token }}").
+#   PROXMOX_VE_API_TOKEN   user@realm!tokenid=uuid
+#   AWS_ACCESS_KEY_ID      S3 (RustFS) access key for the state bucket
+#   AWS_SECRET_ACCESS_KEY  S3 (RustFS) secret key
+#   VM_PASSWORD            cloud-init password of VM_user (optional, see VM_password)
+
+cluster:
+  vars:
+    # --- Root CA, pasted as text (not a secret) -------------------------------------------------
+    # Used twice below: trusted by the S3 backend (tf_backend.ca_cert) and baked into the image
+    # (packer.ca_certs). Could also come from a Variable Group extra variable instead of this file.
+    root_ca_pem: |
+      -----BEGIN CERTIFICATE-----
+      <paste the PEM body here>
+      -----END CERTIFICATE-----
+
+    # --- Common -------------------------------------------------------------------------------
+    state: present                  # optional, present | absent. Dry run = ansible-playbook --check
+    tf_workspace: my-cluster        # REQUIRED (provision). One workspace per inventory/cluster
+    timezone: Europe/Budapest       # optional, image timezone fallback (see packer.timezone)
+
+    # --- OpenTofu state in S3 -----------------------------------------------------------------
+    tf_backend:
+      bucket: tfstate                               # REQUIRED
+      key: proxmox-iac/my-cluster.tfstate           # REQUIRED (provision); object = env:/<tf_workspace>/<key>
+      region: eu-central-1                          # optional, us-east-1. Must match the server's SigV4 region
+      endpoint: "https://s3.example.lan"            # optional, unset = AWS S3. Set for RustFS/MinIO
+      use_path_style: true                          # optional, true (only used with endpoint)
+      use_lockfile: true                            # optional, true (S3 conditional-write locking)
+      skip_s3_checksum: true                        # optional, true (only used with endpoint)
+      insecure: false                               # optional, false. true skips TLS verification
+      ca_cert: "{{ root_ca_pem }}"                  # optional, PEM text; written next to backend.hcl
+      # custom_ca_bundle: /path/on/runner/ca.crt    # optional, file path alternative to ca_cert
+      access_key: "{{ lookup('ansible.builtin.env', 'AWS_ACCESS_KEY_ID') }}"      # REQUIRED
+      secret_key: "{{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') }}"  # REQUIRED
+
+    # --- Proxmox API ----------------------------------------------------------------------------
+    proxmox:
+      endpoint: "https://pve1.example.lan:8006/"                                   # REQUIRED
+      api_token: "{{ lookup('ansible.builtin.env', 'PROXMOX_VE_API_TOKEN') }}"    # REQUIRED
+      tls_insecure: true                                                           # REQUIRED, true | false
+
+    # --- Template image (packer-build-template.yaml only) --------------------------------------
+    packer:
+      template_id: 9000                     # REQUIRED, VMID of the template; point VM_template_id at it
+      node: pve1                            # REQUIRED, node the template is created on
+      storage_pool: local-zfs               # REQUIRED, template disk datastore
+      iso_storage: local                    # optional, local. Needs the "import" content type enabled
+      template_name: debian-13-genericcloud-agent             # optional
+      tf_state_key: proxmox-iac/debian-cloud-template.tfstate  # optional
+      disk_size: 10                         # optional, 10 (GB). Clones can only grow from this
+      timezone: Europe/Budapest             # optional, falls back to timezone above
+      accelerator: kvm                      # optional, kvm | tcg (tcg = no /dev/kvm, very slow)
+      build_user: packer                    # optional, packer. Temporary SSH user during the build
+      iso_url: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"  # optional
+      iso_checksum: "file:https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"                # optional
+      packages:                             # optional, replaces the whole list; must keep qemu-guest-agent
+        - qemu-guest-agent
+        - ca-certificates
+        - ufw
+        - chrony
+        - iotop
+        - nfs-common
+      services:                             # optional, systemd units to enable
+        - qemu-guest-agent
+        - chrony
+      ca_certs:                             # optional, extra CAs trusted inside the image
+        - name: root-ca                     #   file name: /usr/local/share/ca-certificates/<name>.crt
+          content: "{{ root_ca_pem }}"      #   PEM text
+
+    # --- VM defaults (provision). Any VM_* var may also be set per group or per host -----------
+    VM_target_node: pve1                    # REQUIRED, node the VM runs on (changing it migrates the VM)
+    VM_template_id: 9000                    # REQUIRED, = packer.template_id
+    VM_template_node: pve1                  # optional, unset = VM_target_node. Template's node; if it
+                                            #   differs, clone there + migrate (token needs VM.Migrate)
+    VM_agent: true                          # REQUIRED, true | false (qemu-guest-agent is in the image)
+    VM_cores: 2                             # REQUIRED
+    VM_cpu_type: x86-64-v2-AES              # REQUIRED, e.g. host | x86-64-v2-AES | x86-64-v3 (needs AVX2)
+    VM_memory: 2048                         # REQUIRED, MB. Guaranteed minimum when ballooning
+    # VM_memory_balloon_max: 4096           # optional, unset = no ballooning. MB, >= VM_memory
+    VM_storage_pool: local-zfs              # REQUIRED, disk + cloud-init datastore
+    VM_storage_size_gb: 20                  # REQUIRED, >= packer.disk_size
+    VM_storage_ssd: true                    # REQUIRED, true | false
+    VM_storage_discard: "on"                # optional, on | ignore
+    VM_gateway: 192.0.2.1                   # REQUIRED
+    VM_ip_cidr: 24                          # optional, 24. Prefix length for ansible_host
+    VM_user: ansible                        # REQUIRED, cloud-init user
+    VM_password: "{{ lookup('ansible.builtin.env', 'VM_PASSWORD') }}"  # optional, delete the line for no password
+    VM_ssh_pubkey: "ssh-ed25519 AAAA... me@example"   # optional, public key, not a secret
+    VM_tags: [example]                      # optional, list of Proxmox tags
+    # Hardware knobs, all optional (defaults shown):
+    # VM_keyboard_layout: hu
+    # VM_network_bridge: vmbr0
+    # VM_network_model: virtio
+    # VM_serial_device: socket
+    # VM_vga_type: serial0
+    # VM_boot_order: [scsi0]
+    # VM_scsi_hardware: virtio-scsi-pci
+
+  # --- VMs: one host per VM; groups are free-form (for shared VM_* values) ---------------------
+  children:
+    control_planes:
+      hosts:
+        my-cluster-cp-01:                   # host name = VM name
+          ansible_host: 192.0.2.10          # REQUIRED, static IP
+          vmid: 2100                        # REQUIRED, Proxmox VMID
+    workers:
+      vars:
+        VM_cores: 4
+        VM_memory: 4096
+        VM_memory_balloon_max: 8192
+      hosts:
+        my-cluster-worker-01:
+          ansible_host: 192.0.2.11
+          vmid: 2101
+        my-cluster-worker-02:
+          ansible_host: 192.0.2.12
+          vmid: 2102
+          VM_target_node: pve2              # per-host override

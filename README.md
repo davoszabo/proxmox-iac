@@ -27,6 +27,7 @@ roles/                          # Thin Ansible orchestration only - no infra sou
 templates/backend.hcl.j2        # Shared OpenTofu S3 backend template, used by both roles above
 playbooks/                      # Entry points: terraform-provision.yaml, packer-build-template.yaml
 inventory/                      # Your inventories + vault (local, not committed)
+examples/inventory.example.yaml # Every accepted inventory key with its default - start here
 ```
 
 `.github/workflows/opentofu.yml` runs `tofu fmt -check`, `validate`, and `test` for both `tools/terraform/` directories on every push to `main` and on PRs that touch them.
@@ -69,6 +70,36 @@ are mandatory to be defined one-by-one!
             ...
 ```
 
+## Inventory at a glance
+
+`examples/inventory.example.yaml` lists every key the playbooks read, marked REQUIRED or optional with its default. How the keys flow:
+
+```mermaid
+flowchart LR
+  env[["Env / Semaphore secrets<br/>PROXMOX_VE_API_TOKEN, AWS_*, VM_PASSWORD"]]
+  subgraph inv["Inventory: cluster group"]
+    be["tf_backend.*<br/>(ca_cert = PEM text)"]
+    px["proxmox.*"]
+    pk["packer.*"]
+    cm["state, tf_workspace"]
+    vm["one host per VM:<br/>ansible_host, vmid, VM_*"]
+  end
+  env -.-> be
+  env -.-> px
+  env -.-> vm
+  pk --> P1["packer-build-template.yaml"]
+  P1 --> PK["Packer: debian-cloud.pkr.hcl<br/>qcow2 image"]
+  PK --> T1["tofu: debian-cloud-template<br/>template VM packer.template_id"]
+  cm --> P2["terraform-provision.yaml"]
+  vm --> P2
+  P2 --> T2["tofu: provision<br/>modules/vm, one per host"]
+  be --> T1
+  be --> T2
+  px --> T1
+  px --> T2
+  T1 -. "VM_template_id" .-> T2
+```
+
 ## Prerequisites
 Use the devcontainer or install the utilities listed in `.devcontainer/Dockerfile` (Ansible, OpenTofu, Packer, QEMU, xorriso).
 
@@ -79,6 +110,8 @@ Create an inventory and a matching vault (see `inventory/`). Add these vault key
 - `tf_backend_access_key`
 - `tf_backend_secret_key`
 - any `ca_cert_*` keys referenced by `packer.ca_certs` (PEM content, optional — see [§2](#2-debian-cloud-image-with-qemu-guest-agent-packer))
+
+Or read them from environment variables (Semaphore secrets), as `examples/inventory.example.yaml` does: `PROXMOX_VE_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `VM_PASSWORD`.
 
 The Proxmox API token needs `VM.GuestAgent.Audit` (PVE 9 removed `VM.Monitor`), and `VM.Migrate` if any VM uses `VM_template_node`.
 
@@ -192,6 +225,12 @@ Caveats:
 - Store vault secrets / S3 keys / Proxmox tokens as Semaphore secrets or env vars; do not commit them.
 - Point each Semaphore template at this Git repo, the playbook path, and the inventory (Semaphore-managed inventory or Git inventory file).
 - Semaphore is not a continuous reconciler; it is job/schedule/webhook driven (closer to Atlantis/CI than Argo).
+
+Setup used with `examples/inventory.example.yaml`:
+
+- Inventory: paste the YAML as a static inventory. Paste the root CA PEM into `root_ca_pem`; `tf_backend.ca_cert` and `packer.ca_certs` both read it, so no CA file is needed on the runner. A pasted inventory has no `group_vars/` or `certs/` next to it, so `{{ inventory_dir }}/...` paths and vault files do not work there.
+- Variable Group > Secrets: add `PROXMOX_VE_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `VM_PASSWORD` as environment variables. The inventory reads them with `lookup('ansible.builtin.env', ...)`; the roles fail early if a required one is empty.
+- No vault password is needed when the inventory holds no vault-encrypted values.
 
 Semaphore itself is managed in your other repo — this project only needs a runner image with the same tools as `.devcontainer/Dockerfile`.
 
